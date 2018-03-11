@@ -55,6 +55,7 @@ void MobileStation::sendCommand(Command cmd, int param) {
 }
 
 void MobileStation::sendData(nio::ByteBuffer& data) {
+// osmo-bts-trx/trx_if.c(462) trx_if_data
 }
 
 void MobileStation::run() {
@@ -101,30 +102,46 @@ void MobileStation::run() {
 			Log.log("clock ready");
 			buf->clear();
 			clockChn->receive(*buf);
+			Array<byte>& a = buf->array();
 			int clock = 0;
-			handleClock(clock);
+			if (sscanf((const char *)&a[0], "IND CLOCK %u", &clock) == 1) {
+				handleClock(clock);
+			}
+			else {
+				Log.log("Unknown clock message");
+			}
 		}
 		if (FD_ISSET(ctrlChn->getFDVal(), &readfds)) {
 			Log.log("control ready");
 			buf->clear();
 			ctrlChn->receive(*buf);
-			String resp;
-			handleResponse(resp);
+			Array<byte>& a = buf->array();
+			handleResponse(String(a, 0, a.length));
 		}
 		if (FD_ISSET(dataChn->getFDVal(), &readfds)) {
 			Log.log("data ready");
 			buf->clear();
 			dataChn->receive(*buf);
+			buf->flip();
 			handleData(*buf);
 		}
 	}
 }
 
-void MobileStation::handleResponse(const String& rsp) {
+void MobileStation::handleResponse(const String& resp) {
+	Log.log("Response: %s", resp.cstr());
 }
 void MobileStation::handleClock(int clk) {
+	Log.log("Clock: %d", clk);
 }
 void MobileStation::handleData(nio::ByteBuffer& data) {
+	int pos = data.position();
+	int lim = data.limit();
+	int rem = (pos <= lim ? lim - pos : 0);
+	Log.log("Data: len=%d", rem);
+	if (rem != DATA_RECV_SIZE) {
+		throw RuntimeException("Wrong data length");
+	}
 }
 
 void MobileStation::start() {

@@ -6,6 +6,8 @@
 using namespace nio::channels;
 class MobileStation : extends Object {
 private:
+	static const int DATA_RECV_SIZE = 158;
+	static const int DATA_SEND_SIZE = 154;
 	static const String trxHost;
 	static const int trxPort = 5700;
 
