@@ -1,6 +1,6 @@
 #include "MobileStation.hpp"
 
 int main(int argc, const char *argv[]) {
-	MobileStation ms;
+	MobileStation ms("localhost");
 	ms.start();	
 }

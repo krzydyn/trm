@@ -12,8 +12,8 @@ private:
 	static const int FRAME_MODULUS = 2715648;
 	static const int CLOCK_ADVANCE = 20;
 
-	static const String trxHost;
-	static const int trxPort = 5700;
+	const String trxHost;
+	const int trxPort;
 
 	enum class Command {
 		POWEROFF,
@@ -25,13 +25,20 @@ private:
 		SETRXGAIN,
 		SETPOWER,
 		SETSLOT,
-		
 	};
 
 	Shared<Selector> selector;
 	Shared<DatagramChannel> clockChn;
 	Shared<DatagramChannel> ctrlChn;
 	Shared<DatagramChannel> dataChn;
+
+	boolean running = false;
+	boolean transceiverAvailable = false;
+	boolean setupDone = false;
+	uint32_t trxFrame;
+	uint32_t currentFrame;
+
+	uint32_t nextFrame();
 
 	void sendCommand(const Command cmd, int param = 0);
 	void sendData(uint8_t tn, uint32_t fn, uint8_t gain, nio::ByteBuffer& data);
@@ -40,9 +47,14 @@ private:
 	void handleClock(int clk);
 	void handleData(nio::ByteBuffer& data);
 
+	void sendDummyPacket();
+	void setupTrx();
 	void run();
 public:
-	MobileStation();
+	static const int DAFAULT_TRX_PORT = 5700;
+
+	MobileStation(String host, int port=DAFAULT_TRX_PORT) : trxHost(host), trxPort(port) {
+	}
 	void start();
 };
 
