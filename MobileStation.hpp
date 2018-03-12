@@ -36,7 +36,8 @@ private:
 	boolean transceiverAvailable = false;
 	boolean setupDone = false;
 	uint32_t trxFrame;
-	uint32_t currentFrame;
+	uint32_t currentFrame = 0;
+	jlong sendTm = 0;
 
 	uint32_t nextFrame();
 

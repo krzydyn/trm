@@ -20,7 +20,8 @@ byte dummy_burst[148] = {
 }
 
 uint32_t MobileStation::nextFrame() {
-	currentFrame += CLOCK_ADVANCE;
+	//currentFrame = (currentFrame + CLOCK_ADVANCE)%FRAME_MODULUS;
+	currentFrame = (currentFrame + 1)%FRAME_MODULUS;
 	return currentFrame;
 }
 
@@ -72,13 +73,13 @@ void MobileStation::run() {
 	transceiverAvailable = true;
 	Shared<nio::ByteBuffer> buf = nio::ByteBuffer::allocate(1000);
 	fd_set readfds;
+	running = true;
+	while (running) {
+		struct timeval tv = {1, 0};
 		FD_ZERO(&readfds);
 		FD_SET(clockChn->getFDVal(), &readfds);
 		FD_SET(ctrlChn->getFDVal(), &readfds);
 		FD_SET(dataChn->getFDVal(), &readfds);
-	running = true;
-	while (running) {
-		struct timeval tv = {1, 0};
 
 		int n = select(maxfd + 1, &readfds, NULL, NULL, &tv);
 		if (n == 0) {
@@ -130,28 +131,55 @@ void MobileStation::sendData(uint8_t tn, uint32_t fn, uint8_t gain, nio::ByteBuf
 	buf->put(tn);    // timeslot number (0..7)
 	buf->putInt(fn); // frame number
 	buf->put(gain);  // signal power
+	StringBuilder sb(2*DATA_RECV_SIZE);
 	while (data.position() < data.limit()) {
 		byte x = data.get();
 		buf->put(x);
+		sb.append(String::format("%u,",x));
 	}
 	while (buf->position() < DATA_SEND_SIZE) {
 		buf->put(0);
+		sb.append("N");
 	}
 	buf->flip();
-	LOGD("SendData: %d bytes", buf->limit());
+	LOGD("sendData(tn=%d, fn=%d, gain=%d, bytes=%d", tn, fn, gain, buf->limit());
+	LOGD(sb.toString());
 	dataChn->write(*buf);
 }
+void MobileStation::sendDummyPacket() {
+	Shared<nio::ByteBuffer> data = nio::ByteBuffer::allocate(148);
+	for (int i = 0; i < 148; ++i) data->put(dummy_burst[i]);
+	byte tn = 0;
+	data->flip();
+	sendData(tn, nextFrame(), 0, *data);
+	++tn; data->flip();
+	sendData(tn, nextFrame(), 0, *data);
+/*
+	sendData(tn+2, nextFrame(), 0, *data);
+	sendData(tn+3, nextFrame(), 0, *data);
+	sendData(tn+4, nextFrame(), 0, *data);
+*/
+}
+
 void MobileStation::handleResponse(const String& resp) {
 	LOGD("Response: %s", resp.cstr());
 }
 void MobileStation::handleClock(int clk) {
 	if (!transceiverAvailable) {
-		trxFrame = clk;
 	}
 	transceiverAvailable = true;
 	LOGD("Clock: %d", clk);
+	trxFrame = clk;
+	currentFrame = trxFrame;
+	currentFrame = (currentFrame + CLOCK_ADVANCE)%FRAME_MODULUS;
 	if (!setupDone) setupTrx();
-	else sendDummyPacket();
+	else {
+		jlong tm = System.currentTimeMillis();
+		if (sendTm < tm) {
+			sendTm = tm + 1000;
+			sendDummyPacket();
+		}
+	}
 }
 void MobileStation::handleData(nio::ByteBuffer& data) {
 	int pos = data.position();
@@ -174,18 +202,9 @@ void MobileStation::handleData(nio::ByteBuffer& data) {
 	StringBuilder sb(2*DATA_RECV_SIZE);
 	while (data.position() < data.limit()) {
 		int x = 127 - (data.get()&0xff);
-		sb.append(Integer::toString(x));
-		sb.append(",");
+		sb.append(String::format("%d,",x));
 	}
 	LOGD("Data: %s", sb.toString().cstr());
-}
-
-void MobileStation::sendDummyPacket() {
-	Shared<nio::ByteBuffer> data = nio::ByteBuffer::allocate(148);
-	for (int i = 0; i < 148; ++i) data->put(dummy_burst[i]);
-	byte tn = 1;
-	uint32_t fn = nextFrame();
-	sendData(tn, fn, 0, *data);
 }
 
 void MobileStation::setupTrx() {
