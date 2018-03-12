@@ -26,7 +26,7 @@ uint32_t MobileStation::nextFrame() {
 
 void MobileStation::sendCommand(Command cmd, int param) {
 	if (!transceiverAvailable && cmd != Command::POWEROFF) {
-		LOGW("transceiver not available");
+		LOGE("transceiver not available");
 		return ;
 	}
 	String msg = "CMD ";
@@ -69,19 +69,20 @@ void MobileStation::run() {
 	if (maxfd < ctrlChn->getFDVal()) maxfd = ctrlChn->getFDVal();
 	if (maxfd < dataChn->getFDVal()) maxfd = dataChn->getFDVal();
 
+	transceiverAvailable = true;
 	Shared<nio::ByteBuffer> buf = nio::ByteBuffer::allocate(1000);
 	fd_set readfds;
-	running = true;
-	while (running) {
-		struct timeval tv = {2, 0};
 		FD_ZERO(&readfds);
 		FD_SET(clockChn->getFDVal(), &readfds);
 		FD_SET(ctrlChn->getFDVal(), &readfds);
 		FD_SET(dataChn->getFDVal(), &readfds);
+	running = true;
+	while (running) {
+		struct timeval tv = {1, 0};
 
 		int n = select(maxfd + 1, &readfds, NULL, NULL, &tv);
 		if (n == 0) {
-			LOGD("select idle (transceiver not available)");
+			if (transceiverAvailable) LOGE("Nothing received (transceiver not available)");
 			transceiverAvailable = false;
 			setupDone = false;
 			sendCommand(Command::POWEROFF);
@@ -120,7 +121,7 @@ void MobileStation::run() {
 // osmo-bts-trx/trx_if.c(462) trx_if_data
 void MobileStation::sendData(uint8_t tn, uint32_t fn, uint8_t gain, nio::ByteBuffer& data) {
 	if (!transceiverAvailable) {
-		LOGW("transceiver not available");
+		LOGE("transceiver not available");
 		return ;
 	}
 	if (tn < 0 || tn > 7) throw IllegalArgumentException(String::format("TN=%d", tn));
