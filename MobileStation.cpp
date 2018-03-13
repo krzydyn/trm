@@ -27,7 +27,7 @@ uint32_t MobileStation::nextFrame() {
 
 void MobileStation::sendCommand(Command cmd, int param) {
 	if (!transceiverAvailable && cmd != Command::POWEROFF) {
-		LOGE("transceiver not available");
+		LOGE("transceiver not available, command '%d' not send", cmd);
 		return ;
 	}
 	String msg = "CMD ";
@@ -75,6 +75,7 @@ void MobileStation::run() {
 	fd_set readfds;
 	running = true;
 	while (running) {
+		//TODO use Selector
 		struct timeval tv = {1, 0};
 		FD_ZERO(&readfds);
 		FD_SET(clockChn->getFDVal(), &readfds);
@@ -83,32 +84,32 @@ void MobileStation::run() {
 
 		int n = select(maxfd + 1, &readfds, NULL, NULL, &tv);
 		if (n == 0) {
-			if (transceiverAvailable) LOGE("Nothing received (transceiver not available)");
+			if (transceiverAvailable) LOGW("Nothing received (transceiver not available)");
 			transceiverAvailable = false;
 			setupDone = false;
 			sendCommand(Command::POWEROFF);
 			continue;
 		}
 		if (n == -1) {
-			throw io::IOException(String("select") + strerror(errno));
+			throw io::IOException(String("select ") + strerror(errno));
 		}
 		if (FD_ISSET(clockChn->getFDVal(), &readfds)) {
 			buf->clear();
 			clockChn->receive(*buf);
-			Array<byte>& a = buf->array();
-			int clock = 0;
-			if (sscanf((const char *)&a[0], "IND CLOCK %u", &clock) == 1) {
+			String msg(buf->array());
+			try {
+				if (!msg.startsWith("IND CLOCK ")) throw Exception();
+				int clock = Integer::parseInt(msg.substring(10));
 				handleClock(clock);
 			}
-			else {
-				LOGE("Unknown clock message");
+			catch (const Exception& ex) {
+				LOGE("Unrecognized clock message "+msg);
 			}
 		}
 		if (FD_ISSET(ctrlChn->getFDVal(), &readfds)) {
 			buf->clear();
 			ctrlChn->receive(*buf);
-			Array<byte>& a = buf->array();
-			handleResponse(String(a, 0, a.length));
+			handleResponse(String(buf->array()));
 		}
 		if (FD_ISSET(dataChn->getFDVal(), &readfds)) {
 			buf->clear();
@@ -119,10 +120,10 @@ void MobileStation::run() {
 	}
 }
 
-// osmo-bts-trx/trx_if.c(462) trx_if_data
+// based on osmo-bts-trx/trx_if.c(462) trx_if_data
 void MobileStation::sendData(uint8_t tn, uint32_t fn, uint8_t gain, nio::ByteBuffer& data) {
 	if (!transceiverAvailable) {
-		LOGE("transceiver not available");
+		LOGE("transceiver not available, data not sent");
 		return ;
 	}
 	if (tn < 0 || tn > 7) throw IllegalArgumentException(String::format("TN=%d", tn));
