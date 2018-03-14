@@ -103,7 +103,7 @@ void MobileStation::run() {
 				handleClock(clock);
 			}
 			catch (const Exception& ex) {
-				LOGE("Unrecognized clock message "+msg);
+				LOGE("Unrecognized clock message "+msg+"\n"+ex.toString());
 			}
 		}
 		if (FD_ISSET(ctrlChn->getFDVal(), &readfds)) {
