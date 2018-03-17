@@ -6,8 +6,8 @@ TOP_DIR?=.
 
 BUILD_DIR?=$(TOP_DIR)/build
 SOURCE_DIR?=$(PREFIX)
-INC_DIR?=../jacpp/include
-JRELIB?=../jacpp/build/jre.a
+INC_DIR?=../japp/include
+JRELIB?=../japp/build/jre.a
 DEBUG?=-g2
 STATIC=
 
