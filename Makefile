@@ -21,13 +21,13 @@ CPPFLAGS:=$(DEBUG) -I$(INC_DIR) -fPIC -std=c++11
 CPPFLAGS+=-Wall -Wconversion -Werror
 
 LDFLAGS:=-rdynamic
-LDFLAGS+=-lpthread
+LDFLAGS+=-lpthread $(shell pkg-config --libs uhd)
 
 ifeq ($(HOST_OS),Linux)
 LDFLAGS+=-ldl
 endif
 
-SRCS:=$(wildcard $(SOURCE_DIR)/*.cpp)
+SRCS:=trm.cpp MobileStation.cpp RadioDevice.cpp
 OBJS:=$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRCS))
 TARGETS:=$(BUILD_DIR)/trm
 

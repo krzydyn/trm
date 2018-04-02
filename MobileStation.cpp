@@ -1,247 +1,79 @@
-#include <lang/Number.hpp>
+#include <lang/System.hpp>
+#include <lang/Math.hpp>
+
 #include "MobileStation.hpp"
 
-namespace {
-int makeParam(int a, int b) { return ((a&0xff)<<8) | (b&0xff); }
-void setupChannel(Shared<DatagramChannel> chn, const String& host, int port) {
-	chn->bind(InetSocketAddress(host, port+100));
-	chn->connect(InetSocketAddress(host, port));
+MobileStation::MobileStation() {
+}
+MobileStation::~MobileStation() {
+	stop();
 }
 
-byte dummy_burst[148] = {
-    0,0,0,
-    1,1,1,1,1,0,1,1,0,1,1,1,0,1,1,0,0,0,0,0,1,0,1,0,0,1,0,0,1,1,1,0,
-    0,0,0,0,1,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,1,1,1,0,0,
-    0,1,0,1,1,1,0,0,0,1,0,1,1,1,0,0,0,1,0,1,0,1,1,1,0,1,0,0,1,0,1,0,
-    0,0,1,1,0,0,1,1,0,0,1,1,1,0,0,1,1,1,1,0,1,0,0,1,1,1,1,1,0,0,0,1,
-    0,0,1,0,1,1,1,1,1,0,1,0,1,0,
-    0,0,0,
-};
-}
-
-uint32_t MobileStation::nextFrame() {
-	//currentFrame = (currentFrame + CLOCK_ADVANCE)%FRAME_MODULUS;
-	currentFrame = (currentFrame + 1)%FRAME_MODULUS;
-	return currentFrame;
-}
-
-void MobileStation::sendCommand(Command cmd, int param) {
-	if (!transceiverAvailable && cmd != Command::POWEROFF) {
-		LOGE("transceiver not available, command '%d' not send", cmd);
-		return ;
-	}
-	String msg = "CMD ";
-	switch (cmd) {
-	case Command::POWEROFF:
-		msg += "POWEROFF";
-		break;
-	case Command::RXTUNE:
-		msg += String::format("RXTUNE %d", param);
-		break;
-	case Command::TXTUNE:
-		msg += String::format("TXTUNE %d", param);
-		break;
-	case Command::SETTSC:
-		msg += String::format("SETTSC %d", param);
-		break;
-	case Command::SETBSIC:
-		msg += String::format("SETBSIC %d", param);
-		break;
-	case Command::POWERON:
-		msg += "POWERON";
-		break;
-	case Command::SETRXGAIN:
-		msg += String::format("SETRXGAIN %d", param);
-		break;
-	case Command::SETPOWER:
-		msg += String::format("SETPOWER %d", param);
-		break;
-	case Command::SETSLOT:
-		msg += String::format("SETSLOT %d %d", (param>>8)&0xff, param&0xff);
-		break;
-	}
-	msg += '\0';
-	Array<byte> bytes = msg.getBytes();
-	ctrlChn->write(*nio::ByteBuffer::wrap(bytes));
-}
-
-void MobileStation::run() {
-	int maxfd = clockChn->getFDVal();
-	if (maxfd < ctrlChn->getFDVal()) maxfd = ctrlChn->getFDVal();
-	if (maxfd < dataChn->getFDVal()) maxfd = dataChn->getFDVal();
-
-	transceiverAvailable = true;
-	Shared<nio::ByteBuffer> buf = nio::ByteBuffer::allocate(1000);
-	fd_set readfds;
-	running = true;
-	while (running) {
-		//TODO use Selector
-		struct timeval tv = {1, 0};
-		FD_ZERO(&readfds);
-		FD_SET(clockChn->getFDVal(), &readfds);
-		FD_SET(ctrlChn->getFDVal(), &readfds);
-		FD_SET(dataChn->getFDVal(), &readfds);
-
-		int n = select(maxfd + 1, &readfds, NULL, NULL, &tv);
-		if (n == 0) {
-			if (transceiverAvailable) LOGW("Nothing received (transceiver not available)");
-			transceiverAvailable = false;
-			setupDone = false;
-			sendCommand(Command::POWEROFF);
-			continue;
-		}
-		if (n == -1) {
-			throw io::IOException(String("select ") + strerror(errno));
-		}
-		if (FD_ISSET(clockChn->getFDVal(), &readfds)) {
-			buf->clear();
-			clockChn->receive(*buf);
-			String msg(buf->array());
-			try {
-				if (!msg.startsWith("IND CLOCK ")) throw Exception();
-				int clock = Integer::parseInt(msg.substring(10));
-				handleClock(clock);
-			}
-			catch (const Exception& ex) {
-				LOGE("Unrecognized clock message "+msg+"\n"+ex.toString());
-			}
-		}
-		if (FD_ISSET(ctrlChn->getFDVal(), &readfds)) {
-			buf->clear();
-			ctrlChn->receive(*buf);
-			handleResponse(String(buf->array()));
-		}
-		if (FD_ISSET(dataChn->getFDVal(), &readfds)) {
-			buf->clear();
-			dataChn->receive(*buf);
-			buf->flip();
-			handleData(*buf);
-		}
-	}
-}
-
-// based on osmo-bts-trx/trx_if.c(462) trx_if_data
-void MobileStation::sendData(uint8_t tn, uint32_t fn, uint8_t gain, nio::ByteBuffer& data) {
-	if (!transceiverAvailable) {
-		LOGE("transceiver not available, data not sent");
-		return ;
-	}
-	if (tn < 0 || tn > 7) throw IllegalArgumentException(String::format("TN=%d", tn));
-
-	Shared<nio::ByteBuffer> buf = nio::ByteBuffer::allocate(1000);
-	buf->put(tn);    // timeslot number (0..7)
-	buf->putInt(fn); // frame number
-	buf->put(gain);  // signal power
-	StringBuilder sb(2*DATA_RECV_SIZE);
-	while (data.position() < data.limit()) {
-		byte x = data.get();
-		buf->put(x);
-		sb.append(String::format("%u,",x));
-	}
-	while (buf->position() < DATA_SEND_SIZE) {
-		buf->put(0);
-		sb.append("N");
-	}
-	buf->flip();
-	LOGD("sendData(tn=%d, fn=%d, gain=%d, bytes=%d", tn, fn, gain, buf->limit());
-	LOGD(sb.toString());
-	dataChn->write(*buf);
-}
-void MobileStation::sendDummyPacket() {
-	Shared<nio::ByteBuffer> data = nio::ByteBuffer::allocate(148);
-	for (int i = 0; i < 148; ++i) data->put(dummy_burst[i]);
-	byte tn = 0;
-	data->flip();
-	sendData(tn, nextFrame(), 0, *data);
-	++tn; data->flip();
-	sendData(tn, nextFrame(), 0, *data);
 /*
-	sendData(tn+2, nextFrame(), 0, *data);
-	sendData(tn+3, nextFrame(), 0, *data);
-	sendData(tn+4, nextFrame(), 0, *data);
+Band    n=ARFCN     f(ul)                   f(dl)
+=======================================================
+GSM850  128..251    890.0 + 0.2*n           f(ul)+45.0
+GSM900  0..124      890.0 + 0.2*n           f(ul)+45.0
+GSM900  955..1023
+GSM1800 512..885    1720.2 + 0.2*(n-512)    f(ul)+95.0
+GSM1900 512..810    1850.2 + 0.2*(n-512)    f(ul)+80.0
 */
-}
+// http://www.rfwireless-world.com/Terminology/GSM-ARFCN-to-frequency-conversion.html
+struct {
+	GsmBand band;
+	int first, last;
+	double base_freq;
+	double dnl_offs;
+	int fc_offs;
+} band_channels[] = {
+	{GsmBand::GSM450,  259,  293,  450.6, 10.0, -259},
+	{GsmBand::GSM480,  306,  340,  479.0, 10.0, -306},
+	{GsmBand::GSM750,  348,  511,  747.2, 30.0, -438},
+	{GsmBand::GSM850,  128,  251,  824.2, 30.0, -128},
 
-void MobileStation::handleResponse(const String& resp) {
-	LOGD("Response: %s", resp.cstr());
-}
-void MobileStation::handleClock(int clk) {
-	if (!transceiverAvailable) {
-	}
-	transceiverAvailable = true;
-	LOGD("Clock: %d", clk);
-	trxFrame = clk;
-	currentFrame = trxFrame;
-	currentFrame = (currentFrame + CLOCK_ADVANCE)%FRAME_MODULUS;
-	if (!setupDone) setupTrx();
-	else {
-		jlong tm = System.currentTimeMillis();
-		if (sendTm < tm) {
-			sendTm = tm + 1000;
-			sendDummyPacket();
+	{GsmBand::GSM900,    0,  124,  890.0, 45.0, 0},
+	{GsmBand::GSM900,  955, 1023,  890.0, 45.0, -1024},
+	{GsmBand::GSM1800, 512,  885, 1710.2, 95.0, -512},
+	{GsmBand::GSM1900, 512,  810, 1850.2, 80.0, -512},
+
+	{GsmBand::Undef, 0, 0, 0, 0, 0}
+};
+
+void MobileStation::btsScan(GsmBand band) {
+	LOGD("btsScan...");
+	//int decimation = (int)(master_clock_freq / GSM_RATE);
+
+	int chan = 0;
+	for (int i = 0; band_channels[i].band != GsmBand::Undef; ++i) {
+		if (band != band_channels[i].band) continue;
+		for (int n = band_channels[i].first; n <= band_channels[i].last; ++n) {
+			double upl = band_channels[i].base_freq + 0.2*(n + band_channels[i].fc_offs);
+			double dnl = upl + band_channels[i].dnl_offs; 
+			LOGD("ARFCN = %d,  upl %.2lf, dnl %.2lf", n, upl, dnl);
+			upl *= 1e6;
+
+			boolean done = false;
+			// tune radio to upl
+			usrp.setFreq(upl, chan, false);
+			while (!done) {
+				usrp.recv();
+				done = true;
+			}
 		}
 	}
-}
-void MobileStation::handleData(nio::ByteBuffer& data) {
-	int pos = data.position();
-	int lim = data.limit();
-	int rem = (pos <= lim ? lim - pos : 0);
-	if (rem != DATA_RECV_SIZE) {
-		LOGE("Wrong data length: %d", rem);
-		return ;
-	}
-	uint8_t tn = data.get();      // timeslot number
-	uint32_t fn = data.getInt();  // frame number
-	int8_t rssi = (uint8_t)-data.get();
-	float toa = data.getShort()/256.0f;
-	if (tn < 0 || tn > 7) {
-		LOGE("Invalid TN = %d", tn);
-		return ;
-	}
-
-	LOGD("[%d bytes] tn=%d fn=%u rssi=%d  toa=%4.2f", rem, tn, fn, rssi, toa);
-	StringBuilder sb(2*DATA_RECV_SIZE);
-	while (data.position() < data.limit()) {
-		int x = 127 - (data.get()&0xff);
-		sb.append(String::format("%d,",x));
-	}
-	LOGD("Data: %s", sb.toString().cstr());
-}
-
-void MobileStation::setupTrx() {
-	sendCommand(Command::POWEROFF);
-	//sendCommand(Command::RXTUNE, 885400); //set by bts
-	//sendCommand(Command::TXTUNE, 930400);
-	sendCommand(Command::TXTUNE, 885400); // for arfcn=1001
-	sendCommand(Command::RXTUNE, 930400);
-
-	//GSM1800
-	//sendCommand(Command::TXTUNE, 1710200);
-	//sendCommand(Command::RXTUNE, 1805200);
-
-	sendCommand(Command::SETTSC, 7);
-	sendCommand(Command::SETBSIC, 63);
-	sendCommand(Command::POWERON);
-	sendCommand(Command::SETRXGAIN, 10);
-	sendCommand(Command::SETPOWER, 0);
-	sendCommand(Command::SETSLOT, makeParam(0, 5));
-	sendCommand(Command::SETSLOT, makeParam(1, 7));
-	sendCommand(Command::SETSLOT, makeParam(2, 1));
-	sendCommand(Command::SETSLOT, makeParam(3, 1));
-	sendCommand(Command::SETSLOT, makeParam(4, 1));
-	sendCommand(Command::SETSLOT, makeParam(5, 1));
-	sendCommand(Command::SETSLOT, makeParam(6, 1));
-	sendCommand(Command::SETSLOT, makeParam(7, 1));
-	setupDone = true;
+	
 }
 
 void MobileStation::start() {
-	selector = Selector::open();
-	clockChn = selector->provider()->openDatagramChannel();
-	ctrlChn = selector->provider()->openDatagramChannel();
-	dataChn = selector->provider()->openDatagramChannel();
-	setupChannel(clockChn, trxHost, trxPort);
-	setupChannel(ctrlChn, trxHost, trxPort+1);
-	setupChannel(dataChn, trxHost, trxPort+2);
-	run();
+	String addr = "";  // default device (autodetect)
+	if (!usrp.open(addr)) return ;
+	btsScan(GsmBand::GSM900);
+}
+void MobileStation::stop() {
+	LOGD("MobileStation::stop");
+	usrp.close();
+}
+
+String MobileStation::toString() const {
+	return String::format("MobileStation on %s", usrp.toString().cstr());
 }
