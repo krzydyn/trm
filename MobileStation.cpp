@@ -61,7 +61,7 @@ GSM900  955..1023
 GSM1800 512..885    1720.2 + 0.2*(n-512)    f(ul)+95.0
 GSM1900 512..810    1850.2 + 0.2*(n-512)    f(ul)+80.0
 =======================================================
-Dynamic x=ARFCS_FORST, y=BAND_OFFSET, z=ARFCN_RANGE
+Dynamic x=ARFCS_FIRST, y=BAND_OFFSET, z=ARFCN_RANGE
 GSM750              777.2 + 0.2*(n-x+y)     f(ul)-30.0
 
 */
