@@ -111,7 +111,7 @@ MobileStation::~MobileStation() {
 }
 
 void MobileStation::btsScan(GsmBand band) {
-	LOGD("btsScan...");
+	LOGD("btsScan %d...", band);
 	//int decimation = (int)(master_clock_freq / GSM_RATE);
 
 	int chan = 0;
@@ -122,6 +122,7 @@ void MobileStation::btsScan(GsmBand band) {
 			double dnl = upl + band_channels[i].dnl_offs; 
 			LOGD("ARFCN = %d,  upl %.2lf, dnl %.2lf", n, upl, dnl);
 			upl *= 1e6;
+			dnl *= 1e6;
 
 			boolean done = false;
 			// tune radio to downlink (Base-to-Mobile)
@@ -138,7 +139,7 @@ void MobileStation::btsScan(GsmBand band) {
 void MobileStation::start() {
 	String addr = "";  // default device (autodetect)
 	if (!usrp.open(addr)) return ;
-	btsScan(GsmBand::GSM900);
+	btsScan(GsmBand::GSM1800);
 }
 void MobileStation::stop() {
 	LOGD("MobileStation::stop");

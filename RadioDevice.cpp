@@ -57,6 +57,83 @@ double get_dev_offset(DeviceType type, int rx_sps, int tx_sps) {
 }
 }
 
+int SampleBuffer::available(jlong t) const {
+	if (t < tm0) return -1; // past
+	jlong tm1 = tm0 + len;
+	if (t >= tm1) return 0; // future
+	return (int)(tm1 - t);  // number of samples
+}
+
+// write samples (first sample in buf has time=t)
+int SampleBuffer::write(short *b, int l, jlong t) {
+	if (l < 0 || l > capacity) throw RuntimeException("wrong length "+l);
+	if (l == 0) return 0;
+	if (len == 0) tm0 = t;
+	if (t < tm0) {
+		LOGW("Attempt to write data in the past");
+		return -1;
+	}
+	jlong tm1 = tm0 + len;
+	if (t < tm1) {
+		LOGW("Overwriting old data");
+	}
+	else if (tm1 < t) {
+		LOGW("Making Gap in data");
+		int l1 = (int)(t-tm1);
+		int i1=(idx+l1)%capacity;
+		if (i1+l1 <= capacity) memset(buf+i1, 0, l1*sizeof(short));
+		else {
+			int rem = capacity-i1;
+			memset(buf + i1, 0, rem*sizeof(short));
+			memset(buf, 0, (l1-rem)*sizeof(short));
+		}
+	}
+
+	int i0=(idx+(int)(t-tm0))%capacity;
+	if (i0+l <= capacity) {
+		memcpy(buf+i0, b, l*sizeof(short));
+	}
+	else {
+		int rem = capacity-i0;
+		memcpy(buf + i0, b, rem*sizeof(short));
+		memcpy(buf, b + rem, (l-rem)*sizeof(short));
+	}
+	if (tm1 < t + l) tm1 = t + l;
+	len = (int)(tm1-tm0);
+	if (len > capacity) {
+		idx = (i0+len+capacity)%capacity;
+		len = capacity;
+		tm0 = t-capacity;
+		LOGW("Buffer overflow");
+	}
+	return l;
+}
+
+// read samples starting from t
+// after return first sample in buffer has timestamp = t
+int SampleBuffer::read(short *b, int l, jlong t) {
+	if (l <= 0) throw RuntimeException("wrong length "+l);
+	if (t < tm0) return -1; // past data
+	jlong tm1 = tm0 + len;
+	if (t >= tm1) return 0; //future data
+
+	int n = (int)(tm1-t); //number of available samples (from t to tm1)
+	if (l > n) l = n;
+
+	int i0=(idx+(int)(t-tm0))%capacity;
+	if (i0+l <= capacity) {
+		memcpy(b, buf+i0, l*sizeof(short));
+	}
+	else {
+		int rem = capacity-i0;
+		memcpy(b, buf + i0, rem*sizeof(short));
+		memcpy(b + rem, buf, (l-rem)*sizeof(short));
+	}
+	idx = (i0 + l)%capacity;
+	tm0 = t + l;
+	len = (int)(tm1-tm0);
+	return l;
+}
 
 RadioDevice::RadioDevice(int rx_sps, int tx_sps) {
 	this->rx_sps = rx_sps = 4; //FIXME configuration
@@ -163,7 +240,7 @@ boolean RadioDevice::open(const String& args) {
 
 	//set timing offset
 	double offs = get_dev_offset(devType, rx_sps, tx_sps);
-	ts_offs = (TIMESTAMP)(offs * rx_rate);
+	ts_offs = (jlong)(offs * rx_rate);
 
 	//set rx/tx gains
 	uhd::gain_range_t range = usrp_dev->get_rx_gain_range();

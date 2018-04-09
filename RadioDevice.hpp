@@ -28,17 +28,17 @@ enum class DeviceType {
 };
 
 
-template<class T>
 class SampleBuffer : extends Object {
 private:
-	T *buf;
+	short *buf;
 	int capacity;
 	int idx,len;
-	double rate;
-	jlong tm0; //timestamp of sample 0
+	double rate; //allows to convert between time in ticks and real time(in s)
+	jlong tm0;   //timestamp of sample first sample in buffer (counted in ticks, 1sample=1tick)
+
 public:
 	SampleBuffer(int capacity, double rate) : capacity(capacity), idx(0), len(0), rate(rate) {
-		buf = new T[capacity];
+		buf = new short[capacity];
 		tm0 = 0; // or LONG_MIN
 	}
 	virtual ~SampleBuffer() {
@@ -49,83 +49,9 @@ public:
 		return String::format("cap=%d,idx=%d,len=%d,tm0=%ld",capacity,idx,len,tm0);
 	}
 
-	int available(jlong t) const {
-		if (t < tm0) return -1; // past
-		jlong tm1 = tm0 + len;
-		if (t >= tm1) return 0; // future
-		return (int)(tm1 - t);  // number of samples
-	}
-
-	int write(T *b, int l, jlong t) {
-		if (l < 0 || l > capacity) throw RuntimeException("wrong length "+l);
-		if (l == 0) return 0;
-		if (len == 0) tm0 = t;
-		if (t < tm0) {
-			LOGW("Attempt to write data in the past");
-			return -1;
-		}
-		jlong tm1 = tm0 + len;
-		if (t < tm1) {
-			LOGW("Overwriting old data");
-		}
-		if (tm1 < t) {
-			LOGW("Making Gap in data");
-			int l1 = (int)(t-tm1);
-			int i1=(idx+l1)%capacity;
-			if (i1+l1 <= capacity) memset(buf+i1, 0, l1*sizeof(T));
-			else {
-				int rem = capacity-i1;
-				memset(buf + i1, 0, rem*sizeof(T));
-				memset(buf, 0, (l1-rem)*sizeof(T));
-			}
-			len += l1;
-		}
-
-		int i0=(idx+(int)(t-tm0))%capacity;
-		if (i0+l <= capacity) {
-			memcpy(buf+i0, b, l*sizeof(T));
-		}
-		else {
-			int rem = capacity-i0;
-			memcpy(buf + i0, b, rem*sizeof(T));
-			memcpy(buf, b + rem, (l-rem)*sizeof(T));
-		}
-		len += l;
-		if (len > capacity) {
-			idx = (i0+len+capacity)%capacity;
-			len = capacity;
-			tm0 = t-capacity;
-			LOGW("Buffer overflow");
-		}
-		return l;
-	}
-
-	// read samples starting from time=t
-	int read(T *b, int l, jlong t) {
-		if (l <= 0) throw RuntimeException("wrong length "+l);
-		if (t < tm0) return -1; // past data
-		jlong tm1 = tm0 + len;
-		if (t >= tm1) return 0; //future data
-
-		int n = (int)(t-tm1); //numbe of samples from t to end
-		if (l > n) l = n;
-
-		int i0=(idx+(int)(t-tm0))%capacity;
-		
-
-		if (i0+l <= capacity) {
-			memcpy(b, buf+i0, l*sizeof(T));
-		}
-		else {
-			int rem = capacity-i0;
-			memcpy(b, buf + i0, rem*sizeof(T));
-			memcpy(b + rem, buf, (l-rem)*sizeof(T));
-		}
-		idx = (i0 + l)%capacity;
-		tm0 = t + l;
-		len -= l;
-		return l;
-	}
+	int available(jlong t) const;
+	int write(short *b, int l, jlong t);
+	int read(short *b, int l, jlong t);
 };
 
 class RadioDevice : extends Object {

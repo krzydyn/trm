@@ -8,7 +8,7 @@
 jlong readTimestamp = 0;
 jlong writeTimestamp = 0;
 
-int writeBuffer(SampleBuffer<short>& b) {
+int writeBuffer(SampleBuffer& b) {
 	int segmentLen = 100; // =sendBuffer[0]->getSegmentLen();
 	short segment[segmentLen];
 
@@ -21,7 +21,7 @@ int writeBuffer(SampleBuffer<short>& b) {
 	writeTimestamp += r;
 	return r;
 }
-int readBuffer(SampleBuffer<short>& b) {
+int readBuffer(SampleBuffer& b) {
 	int segmentLen = 100;// =recvBuffer[0]->getSegmentLen();
 	short segment[segmentLen];
 
@@ -41,15 +41,17 @@ void runTests() {
 
 	double rx_rate = rate * rx_sps;
 
-	SampleBuffer<short> b(buf_len, rx_rate);
+	SampleBuffer b(buf_len, rx_rate);
 
 	readTimestamp = writeTimestamp = 121;
-	readTimestamp += 100;
-
-	for (int i=0; i < 10; ++i)
+	for (int i=0; i < 10; ++i) {
+		--writeTimestamp;
 		writeBuffer(b);
-	for (int i=0; i < 10; ++i)
+	}
+	for (int i=0; i < 10; ++i) {
+		--readTimestamp;
 		readBuffer(b);
+	}
 }
 
 int main(int argc, const char *argv[]) {
