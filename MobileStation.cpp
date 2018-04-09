@@ -3,12 +3,6 @@
 
 #include "MobileStation.hpp"
 
-MobileStation::MobileStation() {
-}
-MobileStation::~MobileStation() {
-	stop();
-}
-
 /*
 GSM Timing Table
   	            Symbol 	Bursts 	 Frames 	Time 					Rate
@@ -71,6 +65,7 @@ GSM750              777.2 + 0.2*(n-x+y)     f(ul)-30.0
 // http://www.rfwireless-world.com/Tutorials/gsm-frame-structure.html
 // http://www.sharetechnote.com/html/Handbook_GSM_Band_ARFCN_Frequency.html (dynamic also)
 // http://www.telecomabc.com/a/arfcn.html
+namespace {
 struct {
 	GsmBand band;
 	int first, last;
@@ -89,6 +84,7 @@ struct {
 
 	{GsmBand::Undef, 0, 0, 0, 0}
 };
+}
 
 GsmBand upLinkFreq(GsmBand band, int n, double& freq) {
 	for (int i = 0; band_channels[i].band != GsmBand::Undef; ++i) {
@@ -106,6 +102,12 @@ GsmBand dnLinkFreq(GsmBand band, int n, double& freq) {
 		return band_channels[i].band;
 	}
 	return GsmBand::Undef;
+}
+
+MobileStation::MobileStation() {
+}
+MobileStation::~MobileStation() {
+	stop();
 }
 
 void MobileStation::btsScan(GsmBand band) {
