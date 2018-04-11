@@ -27,16 +27,27 @@ enum class DeviceType {
 	LIME_PCIE,
 };
 
-
 class SampleBuffer : extends Object {
 private:
 	short *buf;
 	int capacity;
 	int idx,len;
-	double rate; //allows to convert between time in ticks and real time(in s)
+	double rate; //ticks/s - allows to convert between time in ticks and real time(in s)
 	jlong tm0;   //timestamp of sample first sample in buffer (counted in ticks, 1sample=1tick)
-
+	void move(SampleBuffer& o) {
+		buf = o.buf; o.buf=null;
+		capacity = o.capacity; o.capacity = 0;
+		idx = o.idx;
+		len = o.len;
+		rate = o.rate;
+		tm0 = o.tm0;
+	}
 public:
+	SampleBuffer& operator=(SampleBuffer&& o) {
+		move(o);
+		return *this;
+	}
+	SampleBuffer() : capacity(0) {}
 	SampleBuffer(int capacity, double rate) : capacity(capacity), idx(0), len(0), rate(rate) {
 		buf = new short[capacity];
 		tm0 = 0; // or LONG_MIN
@@ -50,6 +61,7 @@ public:
 	}
 
 	int available(jlong t) const;
+	int space() const;
 	int write(short *b, int l, jlong t);
 	int read(short *b, int l, jlong t);
 };
@@ -70,6 +82,7 @@ private:
 
 	Array<double> rx_gain, tx_gain; //[chans]
 	Array<double> rx_freq, tx_freq; //[chans]
+	Array<SampleBuffer> rx_buffer;
 
 public:
 	RadioDevice(int rx_sps=DEFAULT_RX_SPS, int tx_sps=DEFAULT_TX_SPS);

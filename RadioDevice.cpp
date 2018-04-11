@@ -5,10 +5,9 @@
 
 
 #define GSMRATE (1625000.0 / 6.0)
-
+#define SAMPLE_BUF_SZ   (1 << 20)
 
 namespace {
-double master_clock_freq = 8000000.0; // 8MHz = minimal master clock
 struct {
 	DeviceType type;
 	int tx_sps, rx_sps;
@@ -57,6 +56,9 @@ double get_dev_offset(DeviceType type, int rx_sps, int tx_sps) {
 }
 }
 
+int SampleBuffer::space() const {
+	return capacity - len;
+}
 int SampleBuffer::available(jlong t) const {
 	if (t < tm0) return -1; // past
 	jlong tm1 = tm0 + len;
@@ -182,8 +184,10 @@ boolean RadioDevice::open(const String& args) {
 	tx_gain = Array<double>(chans);
 	rx_freq = Array<double>(chans);
 	tx_freq = Array<double>(chans);
+	rx_buffer = Array<SampleBuffer>(chans);
 
 	// set master clock
+	double master_clock_freq = 8000000.0; // 8MHz = minimal/defaeult master clock
 	if (devType == DeviceType::LIME_USB) {
 		master_clock_freq = GSMRATE * 32;
 		rx_rate = GSMRATE * rx_sps;
@@ -227,6 +231,7 @@ boolean RadioDevice::open(const String& args) {
 	else {
 		stream_args = uhd::stream_args_t("sc16");
 	}
+	//stream_args = uhd::stream_args_t("sc16"); //TODO check one setting for all
 	for (int i = 0; i < chans; i++)
 		stream_args.channels.push_back(i);
 
@@ -241,6 +246,11 @@ boolean RadioDevice::open(const String& args) {
 	//set timing offset
 	double offs = get_dev_offset(devType, rx_sps, tx_sps);
 	ts_offs = (jlong)(offs * rx_rate);
+
+	int buf_len = SAMPLE_BUF_SZ / sizeof(uint32_t);
+	for (int i = 0; i < rx_buffer.length; ++i) {
+		rx_buffer[i] = std::move(SampleBuffer(buf_len, rx_rate));
+	}
 
 	//set rx/tx gains
 	uhd::gain_range_t range = usrp_dev->get_rx_gain_range();
@@ -347,18 +357,31 @@ void RadioDevice::recv() {
 	if (!usrp_dev) throw IllegalStateException("Device not opened");
 	uhd::rx_metadata_t md;
 	int rx_spp = (int)rx_stream->get_max_num_samps(); // samples per packet
-	short dummy[2*rx_spp];
+	short pkt_bufs[chans][2*rx_spp];
 
 	std::vector<short *> pkt_ptrs;
 	for (int i = 0; i < chans; i++)
-		pkt_ptrs.push_back(dummy);
+		pkt_ptrs.push_back(pkt_bufs[i]);
 
-	size_t num_smpls = rx_stream->recv(pkt_ptrs, rx_spp, md, 0.1, true);
-	if (md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE) {
-		LOGE("recv error = %s(%d)", md.strerror().c_str(), md.error_code);
-	}
-	if (md.error_code != uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) {
-		++rx_pkt_cnt;
+	LOGD("want samples = %d", rx_buffer[0].space());
+	//feed rx_buffer
+	while (rx_buffer[0].space() > rx_spp) {
+		int num_smpls = (int)rx_stream->recv(pkt_ptrs, rx_spp, md, 0.1, true);
+		if (md.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE) {
+			LOGE("recv error = %s(%d)", md.strerror().c_str(), md.error_code);
+			if (md.error_code == uhd::rx_metadata_t::ERROR_CODE_TIMEOUT) break;
+			continue;
+		}
 		LOGD("recv pkt %d samples = %d", rx_pkt_cnt, num_smpls);
+		++rx_pkt_cnt;
+
+		jlong ts = md.time_spec.to_ticks(rx_rate);
+		for (int i = 0; i < rx_buffer.length; ++i) {
+			rx_buffer[i].write(pkt_bufs[i], num_smpls, ts);
+		}
 	}
+}
+
+void RadioDevice::send() {
+	
 }
