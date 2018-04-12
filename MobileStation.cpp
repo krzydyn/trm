@@ -104,7 +104,8 @@ GsmBand dnLinkFreq(GsmBand band, int n, double& freq) {
 	return GsmBand::Undef;
 }
 
-MobileStation::MobileStation() {
+//TODO read rx_sps,tx_sps from config
+MobileStation::MobileStation() : usrp(4, 4) {
 }
 MobileStation::~MobileStation() {
 	stop();

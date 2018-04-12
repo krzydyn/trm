@@ -4,11 +4,8 @@
 #include <lang/String.hpp>
 #include <lang/System.hpp>
 
-#include <uhd/usrp/multi_usrp.hpp>
-
 #define DEFAULT_RX_SPS      1
 #define DEFAULT_TX_SPS      4
-#define UHD_RESTART_TIMEOUT     1.0
 
 #define MHz(f) ((f)/1e6)
 
@@ -17,8 +14,7 @@ enum class DeviceType {
 	USRP1,
 	USRP2,
 	B100,
-	B200,
-	B210,
+	B2xx,
 	E1xx,
 	E3xx,
 	X3xx,
@@ -29,7 +25,7 @@ enum class DeviceType {
 
 class SampleBuffer : extends Object {
 private:
-	short *buf;
+	short *buf; // 1sample = 2*short
 	int capacity;
 	int idx,len;
 	double rate; //ticks/s - allows to convert between time in ticks and real time(in s)
@@ -49,7 +45,7 @@ public:
 	}
 	SampleBuffer() : capacity(0) {}
 	SampleBuffer(int capacity, double rate) : capacity(capacity), idx(0), len(0), rate(rate) {
-		buf = new short[capacity];
+		buf = new short[2*capacity]; // 1sample = 2short
 		tm0 = 0; // or LONG_MIN
 	}
 	virtual ~SampleBuffer() {
@@ -66,11 +62,10 @@ public:
 	int read(short *b, int l, jlong t);
 };
 
+class UHDdata;
 class RadioDevice : extends Object {
 private:
-	uhd::usrp::multi_usrp::sptr usrp_dev;
-	uhd::rx_streamer::sptr rx_stream;
-	uhd::tx_streamer::sptr tx_stream;
+	UHDdata *uhd = null;
 
 	DeviceType devType = DeviceType::Undef;
 	int chans = 0; // number of channels
@@ -78,11 +73,13 @@ private:
 	double rx_rate = 0, tx_rate = 0;
 	double master_clock_offset = 0;
 	long rx_pkt_cnt = 0, tx_pkt_cnt = 0;
+	jlong writeTimestamp;
 	jlong ts_offs = 0;
 
 	Array<double> rx_gain, tx_gain; //[chans]
 	Array<double> rx_freq, tx_freq; //[chans]
 	Array<SampleBuffer> rx_buffer;
+	Array<SampleBuffer> tx_buffer;
 
 public:
 	RadioDevice(int rx_sps=DEFAULT_RX_SPS, int tx_sps=DEFAULT_TX_SPS);
@@ -98,6 +95,7 @@ public:
 
 	void rx_flush(int pkts);
 	void recv();
+	void send();
 };
 
 
