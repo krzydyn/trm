@@ -8,7 +8,7 @@
 // GSM symbol rate = 270.83 kHz
 #define GSMRATE (1625000.0 / 6.0)
 #define SAMPLE_BUF_SZ   (1 << 20)
-#define SEND_CHUNK 625  //=burst size
+#define CHUNK_SIZE 625  //=burst size
 
 
 namespace {
@@ -355,6 +355,20 @@ boolean RadioDevice::setFreq(double freq, int chan, bool tx) {
 	}
 	return true;
 }
+Array<String> RadioDevice::listClockSources() {
+	if (!uhd->usrp_dev) throw IllegalStateException("Device not opened");
+	std::vector<std::string> l = uhd->usrp_dev->get_clock_sources(0);
+	Array<String> a((int)l.size());
+	for (int i=0; a.length; ++i) a[i] = l[i];
+	return a;
+}
+Array<String> RadioDevice::listTimeSources() {
+	if (!uhd->usrp_dev) throw IllegalStateException("Device not opened");
+	std::vector<std::string> l = uhd->usrp_dev->get_time_sources(0);
+	Array<String> a((int)l.size());
+	for (int i=0; a.length; ++i) a[i] = l[i];
+	return a;
+}
 
 void RadioDevice::restart() {
 	if (!uhd->usrp_dev) throw IllegalStateException("Device not opened");
@@ -395,7 +409,8 @@ void RadioDevice::rx_flush(int num_pkts) {
 void RadioDevice::recv() {
 	if (!uhd->usrp_dev) throw IllegalStateException("Device not opened");
 	uhd::rx_metadata_t md;
-	int rx_spp = (int)uhd->rx_stream->get_max_num_samps(); // samples per packet
+	//int rx_spp = (int)uhd->rx_stream->get_max_num_samps(); // samples per packet
+	int rx_spp = 3*CHUNK_SIZE;
 	short pkt_bufs[chans][2*rx_spp];
 
 	std::vector<short *> pkt_ptrs;
@@ -422,6 +437,7 @@ void RadioDevice::recv() {
 		for (int i = 0; i < rx_buffer.length; ++i) {
 			rx_buffer[i].write(pkt_bufs[i], num_smpls, ts);
 		}
+		readTimestamp += num_smpls;
 	}
 }
 
@@ -431,7 +447,7 @@ void RadioDevice::send() {
 	md.start_of_burst = false;
 	md.end_of_burst = false;
 
-	int tx_spp = SEND_CHUNK * tx_sps;
+	int tx_spp = CHUNK_SIZE * tx_sps;
 
 	short pkt_bufs[chans][2*tx_spp];
 	std::vector<short *> pkt_ptrs;

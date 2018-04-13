@@ -10,7 +10,7 @@ jlong writeTimestamp = 0;
 
 int writeBuffer(SampleBuffer& b) {
 	int segmentLen = 100; // =sendBuffer[0]->getSegmentLen();
-	short segment[segmentLen];
+	short segment[2*segmentLen];
 
 	int r = b.write(segment, segmentLen, writeTimestamp);
 	LOGD("Wrote segment len=%d = %d, b = %s", segmentLen, r, b.toString().cstr());
@@ -23,7 +23,7 @@ int writeBuffer(SampleBuffer& b) {
 }
 int readBuffer(SampleBuffer& b) {
 	int segmentLen = 100;// =recvBuffer[0]->getSegmentLen();
-	short segment[segmentLen];
+	short segment[2*segmentLen];
 
 	LOGD("Read segment len=%d b = %s", segmentLen, b.toString().cstr());
 	int r = b.read(segment, segmentLen, readTimestamp);
@@ -34,7 +34,7 @@ int readBuffer(SampleBuffer& b) {
 	readTimestamp += r;
 	return r;
 }
-void runTests() {
+void simpleReadWrite() {
 	double rate = GSMRATE;
 	int buf_len = SAMPLE_BUF_SZ / sizeof(uint32_t);
 	int rx_sps = 4; //Samples-per-symbol
@@ -52,6 +52,10 @@ void runTests() {
 		++readTimestamp;
 		readBuffer(b);
 	}
+}
+
+void runTests() {
+	simpleReadWrite();
 }
 
 int main(int argc, const char *argv[]) {

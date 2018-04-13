@@ -140,6 +140,10 @@ void MobileStation::btsScan(GsmBand band) {
 void MobileStation::start() {
 	String addr = "";  // default device (autodetect)
 	if (!usrp.open(addr)) return ;
+	Array<String> a = usrp.listClockSources();
+	for (String& s : a) System.out.println(s);
+	a = usrp.listTimeSources();
+	for (String& s : a) System.out.println(s);
 	btsScan(GsmBand::GSM1800);
 }
 void MobileStation::stop() {

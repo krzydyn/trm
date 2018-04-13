@@ -73,6 +73,7 @@ private:
 	double rx_rate = 0, tx_rate = 0;
 	double master_clock_offset = 0;
 	long rx_pkt_cnt = 0, tx_pkt_cnt = 0;
+	jlong readTimestamp;
 	jlong writeTimestamp;
 	jlong ts_offs = 0;
 
@@ -92,6 +93,9 @@ public:
 
 	boolean setAntenna(const String& rx, const String& tx);
 	boolean setFreq(double freq, int chan, bool tx);
+
+	Array<String> listClockSources();
+	Array<String> listTimeSources();
 
 	void rx_flush(int pkts);
 	void recv();
