@@ -28,10 +28,15 @@ LDFLAGS+=-ldl
 endif
 
 SRCS_TRM:=./trm.cpp ./MobileStation.cpp ./RadioDevice.cpp
+SRCS_TRXCOM:=./trxcom.cpp ./Transcom.cpp
 OBJS_TRM:=$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRCS_TRM))
-TARGETS:=$(BUILD_DIR)/trm
+OBJS_TRXCOM:=$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRCS_TRXCOM))
+TARGETS:=$(BUILD_DIR)/trm $(BUILD_DIR)/trxcom
 
 $(BUILD_DIR)/trm: $(OBJS_TRM) $(JRELIB)
+	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
+
+$(BUILD_DIR)/trxcom: $(OBJS_TRXCOM) $(JRELIB)
 	$(CXX) $(CXXFLAGS) $^ $(LDFLAGS) -o $@
 
 $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.cpp

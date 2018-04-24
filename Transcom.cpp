@@ -1,6 +1,8 @@
 #include <lang/Number.hpp>
 #include "Transcom.hpp"
 
+#include <poll.h>
+
 namespace {
 int makeParam(int a, int b) { return ((a&0xff)<<8) | (b&0xff); }
 void setupChannel(Shared<DatagramChannel> chn, const String& host, int port) {
@@ -66,23 +68,24 @@ void Transcom::sendCommand(Command cmd, int param) {
 }
 
 void Transcom::run() {
-	int maxfd = clockChn->getFDVal();
-	if (maxfd < ctrlChn->getFDVal()) maxfd = ctrlChn->getFDVal();
-	if (maxfd < dataChn->getFDVal()) maxfd = dataChn->getFDVal();
-
 	transceiverAvailable = true;
 	Shared<nio::ByteBuffer> buf = nio::ByteBuffer::allocate(1000);
-	fd_set readfds;
+
+	//TODO use Selector
+	struct ::pollfd fds[3];
+	fds[0].fd = clockChn->getFDVal();
+	fds[0].events = POLLIN;
+	fds[1].fd = ctrlChn->getFDVal();
+	fds[1].events = POLLIN;
+	fds[2].fd = dataChn->getFDVal();
+	fds[2].events = POLLIN;
 	running = true;
 	while (running) {
-		//TODO use Selector
-		struct timeval tv = {1, 0};
-		FD_ZERO(&readfds);
-		FD_SET(clockChn->getFDVal(), &readfds);
-		FD_SET(ctrlChn->getFDVal(), &readfds);
-		FD_SET(dataChn->getFDVal(), &readfds);
+		fds[0].revents = 0;
+		fds[1].revents = 0;
+		fds[2].revents = 0;
 
-		int n = select(maxfd + 1, &readfds, NULL, NULL, &tv);
+		int n = ::poll(fds, 3, 1000);
 		if (n == 0) {
 			if (transceiverAvailable) LOGW("Nothing received (transceiver not available)");
 			transceiverAvailable = false;
@@ -91,9 +94,9 @@ void Transcom::run() {
 			continue;
 		}
 		if (n == -1) {
-			throw io::IOException(String("select ") + strerror(errno));
+			throw io::IOException(String("poll ") + strerror(errno));
 		}
-		if (FD_ISSET(clockChn->getFDVal(), &readfds)) {
+		if (fds[0].revents) {
 			buf->clear();
 			clockChn->receive(*buf);
 			String msg(buf->array());
@@ -106,12 +109,12 @@ void Transcom::run() {
 				LOGE("Unrecognized clock message "+msg+"\n"+ex.toString());
 			}
 		}
-		if (FD_ISSET(ctrlChn->getFDVal(), &readfds)) {
+		if (fds[1].revents) {
 			buf->clear();
 			ctrlChn->receive(*buf);
 			handleResponse(String(buf->array()));
 		}
-		if (FD_ISSET(dataChn->getFDVal(), &readfds)) {
+		if (fds[2].revents) {
 			buf->clear();
 			dataChn->receive(*buf);
 			buf->flip();
